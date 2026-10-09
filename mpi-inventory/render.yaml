@@ -1,0 +1,22 @@
+# Render Blueprint: one web service with a small disk for the database.
+services:
+  - type: web
+    name: mpi-inventory
+    runtime: node
+    plan: starter            # a disk needs a paid plan; free plans lose data on restart
+    buildCommand: "echo no build needed"
+    startCommand: "node server.js"
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATA_DIR
+        value: /var/data
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: APP_PASSWORD
+        sync: false          # Render asks you to type the staff password when you create it
+    disk:
+      name: inventory-data
+      mountPath: /var/data
+      sizeGB: 1
