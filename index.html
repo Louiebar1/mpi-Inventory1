@@ -265,7 +265,7 @@ td.r,th.r{text-align:right}
         <div class="modefields" id="mf-receive" hidden>
           <div class="field" style="flex-basis:260px"><label for="rcPaper"><span>Paper type</span></label><div class="scanrow"><select id="rcPaper"></select><button class="btn" type="button" id="qpOpen" title="Add or edit paper types">+ New type</button></div></div>
           <label class="field"><span>Weight lb</span><input id="rcKg" type="number" min="0" step="1" inputmode="decimal" placeholder="e.g. 1250"></label>
-          <label class="field"><span>Length in</span><input id="rcLen" type="number" min="0" step="any" inputmode="decimal" placeholder="optional"></label>
+          <label class="field"><span>Length in</span><input id="rcLen" type="number" min="0" step="any" inputmode="decimal" placeholder="Auto from weight"></label>
           <label class="field"><span>Location</span><input id="rcLoc" placeholder="e.g. Bay A2"></label>
         </div>
         <form class="modefields" id="quickPaper" hidden>
@@ -422,7 +422,7 @@ td.r,th.r{text-align:right}
         <label class="field"><span>Weight per roll (lb)</span><input id="lbLbs" type="number" min="0" step="1" inputmode="decimal" placeholder="e.g. 1250"></label>
       </div>
       <div class="btnrow" style="flex-wrap:nowrap">
-        <label class="field"><span>Length per roll (in)</span><input id="lbLen" type="number" min="0" step="any" inputmode="decimal" placeholder="Optional"></label>
+        <label class="field"><span>Length per roll (in)</span><input id="lbLen" type="number" min="0" step="any" inputmode="decimal" placeholder="Auto from weight"></label>
         <label class="field"><span>Supplier / mill</span><input id="lbSupplier" placeholder="Optional"></label>
         <label class="field"><span>Location</span><input id="lbLoc" placeholder="e.g. Bay A2"></label>
       </div>
@@ -590,7 +590,14 @@ const fmt=ms=>ms?new Date(ms).toLocaleString(undefined,{month:'short',day:'numer
 const fmtDay=ms=>ms?new Date(ms).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}):'—';
 const ago=ms=>{const m=Math.round((Date.now()-ms)/60000);if(m<1)return'just now';if(m<60)return m+' min ago';const h=Math.round(m/60);if(h<24)return h+' h ago';return fmtDay(ms)};
 const lbOf=r=>r.weightLbs!=null&&r.weightLbs!==''?+r.weightLbs:(r.weightKg!=null&&r.weightKg!==''?(+r.weightKg)/0.45359237:null);
-const lenIn=r=>r.lengthIn!=null&&r.lengthIn!==''?+r.lengthIn:(r.lengthM?(+r.lengthM)*39.3701:null);
+const gsmOf=p=>p?(+p.gsm||(p.basisLb&&BASIS[p.basisGrade]?p.basisLb*BASIS[p.basisGrade]:0)):0;
+// Roll length in inches from weight, gsm and width: grams / (gsm x width in metres) = metres.
+const calcLen=(lbs,p)=>{const g=gsmOf(p),w=p?+p.width:0;return lbs>0&&g>0&&w>0?Math.round(lbs*453.59237/(g*w*0.0254)*39.3701):null};
+const lenEntered=r=>r.lengthIn!=null&&r.lengthIn!==''?+r.lengthIn:(r.lengthM?(+r.lengthM)*39.3701:null);
+// Use the entered length only when it is believable (within 50%-200% of the calculated length); otherwise calculate it.
+const lenEst=r=>{const e=lenEntered(r),c=calcLen(lbOf(r),paperOf(r));return c!=null&&(e==null||e<c*0.5||e>c*2)};
+const lenIn=r=>{const e=lenEntered(r),c=calcLen(lbOf(r),paperOf(r));return lenEst(r)?c:e};
+const ftTxt=n=>n?Math.round(n/12).toLocaleString()+' ft':'';
 const hasMin=p=>p.reorder!=null&&p.reorder!=='';
 const sumLb=rs=>rs.reduce((s,r)=>s+(lbOf(r)||0),0);
 const kg=n=>n||n===0?Number(n).toLocaleString(undefined,{maximumFractionDigits:1}):'—';
@@ -691,7 +698,7 @@ function renderCard(){
       <div class="kv">
         <div><span class="label">PO number</span><b>${esc(r.po||'—')}</b></div>
         <div><span class="label">Weight</span><b class="num">${lbOf(r)!=null?kg(lbOf(r))+' lb':'—'}${r.weightKg!=null?' <span class="muted" style="font-weight:400">· '+kg(r.weightKg)+' kg</span>':''}</b></div>
-        <div><span class="label">Length</span><b class="num">${lenIn(r)!=null?kg(lenIn(r))+' in':'—'}</b></div>
+        <div><span class="label">Length</span><b class="num">${lenIn(r)!=null?kg(lenIn(r))+' in':'—'}</b>${lenIn(r)!=null?`<div class="muted num" style="font-size:12px">${ftTxt(lenIn(r))}${lenEst(r)?' · calculated':''}</div>`:''}</div>
         <div><span class="label">Location</span><b>${esc(r.location||'—')}</b></div>
         <div><span class="label">Job / press</span><b>${esc(r.job||'—')}</b></div>
         <div><span class="label">Received</span><b>${fmt(r.receivedAt)}</b></div>
@@ -834,8 +841,8 @@ S.openPapers=new Set();
 function renderTotals(){
   const {rows,tot}=totalsData();
   $('totAsOf').textContent='As of '+new Date().toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'})+' · live';
-  $('totKpis').innerHTML=`<div><span class="label">Paper types</span><b>${rows.length}</b></div><div><span class="label">Rolls on hand</span><b>${tot.h}</b></div><div><span class="label">Total lb on hand</span><b>${kg(tot.hkg)}</b></div><div><span class="label">Total length (in)</span><b>${tot.hm?kg(tot.hm):'—'}</b></div><div><span class="label">Need reorder</span><b style="color:${tot.low?'var(--danger)':'inherit'}">${tot.low}</b></div>`;
-  const m=n=>n?kg(n):'—';
+  $('totKpis').innerHTML=`<div><span class="label">Paper types</span><b>${rows.length}</b></div><div><span class="label">Rolls on hand</span><b>${tot.h}</b></div><div><span class="label">Total lb on hand</span><b>${kg(tot.hkg)}</b></div><div><span class="label">Total length (in)</span><b>${tot.hm?kg(Math.round(tot.hm)):'—'}</b><span class="muted num" style="font-size:12px">${tot.hm?'= '+ftTxt(tot.hm)+' · calculated from lb, gsm &amp; width':''}</span></div><div><span class="label">Need reorder</span><b style="color:${tot.low?'var(--danger)':'inherit'}">${tot.low}</b></div>`;
+  const m=n=>n?kg(Math.round(n)):'—';
   $('totRows').innerHTML=rows.length?rows.map(r=>{const open=S.openPapers.has(r.p.id);
     const main=`<tr class="prow${open?' open':''}" data-ptoggle="${esc(r.p.id)}"><td><span class="caret">▸</span><b>${esc(r.p.name)}</b><div class="muted" style="padding-left:14px;font-size:12px">${esc(spec(r.p))}</div></td>
       <td class="r num">${r.i}</td><td class="r num">${m(r.ikg)}</td><td class="r num">${r.a}</td><td class="r num">${m(r.akg)}</td>
@@ -1035,7 +1042,7 @@ function autoPrefix(){const d=new Date(),z=n=>String(n).padStart(2,'0');return '
 function buildLabelRows(){const f=labelForm();
   const pre=f.po||autoPrefix();
   let seq=nextSeq(pre);const rows=[];
-  while(rows.length<f.count){const id=`${pre}-${String(seq).padStart(3,'0')}`;seq++;if(S.rolls.has(docId(id)))continue;rows.push({id,lbs:f.lbs,len:f.len})}
+  while(rows.length<f.count){const id=`${pre}-${String(seq).padStart(3,'0')}`;seq++;if(S.rolls.has(docId(id)))continue;rows.push({id,lbs:f.lbs,len:f.len||calcLen(f.lbs,f.paper)})}
   S.lbRows=rows}
 function labelHTML(row,i,n,f){const p=f.paper||{};
   return `<img src="${MPI_LOGO}" alt="MPI Print &amp; Packaging" style="height:30px;width:auto;align-self:flex-start">
