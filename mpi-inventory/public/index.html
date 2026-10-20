@@ -244,6 +244,7 @@ td.r,th.r{text-align:right}
     <button role="tab" data-tab="totals" aria-selected="false">Inventory totals</button>
     <button role="tab" data-tab="stock" aria-selected="false">Stock</button>
     <button role="tab" data-tab="usage" aria-selected="false">Usage</button>
+    <button role="tab" data-tab="alloc" aria-selected="false">Allocate to job</button>
     <button role="tab" data-tab="labels" aria-selected="false">New rolls &amp; labels</button>
     <button role="tab" data-tab="dockets" aria-selected="false">Dockets</button>
     <button role="tab" data-tab="papers" aria-selected="false">Paper types</button>
@@ -373,6 +374,31 @@ td.r,th.r{text-align:right}
   </section>
 
   <!-- PAPERS -->
+  <section id="tab-alloc" hidden class="grid2 dk">
+    <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+      <div class="panel">
+        <div class="btnrow" style="justify-content:space-between"><h3>Rolls picked for this job</h3><span class="muted num" id="abTotal"></span></div>
+        <p class="muted" style="margin:0">Oldest stock is picked first. Untick a roll to skip it; the next one is added automatically.</p>
+        <div class="tablewrap" style="border:0"><table><thead><tr><th></th><th>Roll barcode</th><th>Location</th><th class="r">lb</th><th>Received</th></tr></thead><tbody id="abRows"></tbody></table></div>
+      </div>
+    </div>
+    <form class="panel" id="abForm">
+      <h3>Allocate rolls to a job</h3>
+      <p class="muted" style="margin:0">Choose the paper and the poundage the job needs. The system picks the rolls for you, with no need to scan each one.</p>
+      <label class="field"><span>Job no. / press</span><input id="abJob" placeholder="e.g. 86790" autocomplete="off"></label>
+      <label class="field"><span>Paper type</span><select id="abPaper"></select></label>
+      <div class="muted" id="abAvail" style="margin-top:-6px;font-size:13px"></div>
+      <div class="btnrow" style="flex-wrap:nowrap">
+        <label class="field"><span id="abQtyLbl">Poundage needed (lb)</span><input id="abQty" type="number" min="1" step="any" inputmode="decimal" placeholder="e.g. 12000"></label>
+        <label class="field" style="flex:0 0 120px"><span>In</span><select id="abUnit"><option value="lb">Poundage (lb)</option><option value="rolls">Number of rolls</option></select></label>
+      </div>
+      <label class="field"><span>Take from location (optional)</span><select id="abLoc"><option value="">Any location</option></select></label>
+      <button class="btn primary" type="submit" id="abGo" disabled>Allocate</button>
+      <div class="muted" style="font-size:13px" id="abMsg"></div>
+      <button class="btn" type="button" id="abDocket" hidden>Print docket for this job</button>
+    </form>
+  </section>
+
   <section id="tab-labels" hidden class="grid2 dk">
     <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
       <div class="paperwrap lblwrap"><div class="rlabel" id="lbPreview"></div></div>
@@ -456,6 +482,9 @@ td.r,th.r{text-align:right}
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<div id="diskWarn" hidden role="alert" style="position:fixed;top:0;left:0;right:0;z-index:300;background:#B42318;color:#fff;padding:12px 16px calc(12px);padding-top:calc(12px + env(safe-area-inset-top,0px));font-weight:600;line-height:1.4;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.3)">
+  ⚠ WARNING: Rolls entered now are NOT being saved permanently and will be lost when the app restarts.<br>
+  <span style="font-weight:400">Manager: in Render, use a paid instance (Starter), add a Disk at <b>/var/data</b>, and set <b>DATA_DIR = /var/data</b>.</span></div>
 <div id="loginBox" class="mpiOverlay" hidden>
   <form id="liForm" class="mpiCard">
     <img src="data:image/png;base64,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" alt="MPI Print &amp; Packaging" style="height:44px;width:auto;align-self:center">
@@ -541,7 +570,7 @@ td.r,th.r{text-align:right}
   $('signOut').onclick=async()=>{try{await fetch('/api/logout',{method:'POST'})}catch(e){}location.reload()};
   $('changeName').onclick=()=>{$('nmName').value=myName();$('nameBox').hidden=false;$('nmName').focus()};
   $('nmForm').onsubmit=e=>{e.preventDefault();const n=$('nmName').value.trim();if(!n)return;ls.set('mpiName',n);$('whoami').textContent=n;$('nameBox').hidden=true;location.reload()};
-  fetch('/api/me',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{if(j.signedIn&&myName())finish();else showLogin()}).catch(()=>showLogin('No connection to the server. Check the Wi-Fi, then reload.'));
+  fetch('/api/me',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{if(j.persistent===false){$('diskWarn').hidden=false;document.body.style.paddingTop=($('diskWarn').offsetHeight)+'px'}if(j.open){const pf=$('liPass').closest('label');pf.hidden=true;$('liPass').required=false}if(j.signedIn&&myName())finish();else showLogin()}).catch(()=>showLogin('No connection to the server. Check the Wi-Fi, then reload.'));
 
   window.claude={use:async name=>{if(name==='db'){await signedIn;return db}if(name==='user'){await signedIn;return user}if(name==='downloads')return downloads;return null}};
   window.__mpiApi=api;
@@ -904,6 +933,40 @@ $('camAsk').onclick=async()=>{if(!lastPhoto)return;const smp=await claude.use('s
 
 /* Ask the PDF viewer to open its print dialog as soon as the file is opened (Acrobat/Reader, Chrome, Edge). */
 function autoPrint(doc){try{const {PDFName,PDFString}=PDFLib;const act=doc.context.obj({Type:PDFName.of('Action'),S:PDFName.of('JavaScript'),JS:PDFString.of('this.print({bUI:true,bSilent:false,bShrinkToFit:false});')});doc.catalog.set(PDFName.of('OpenAction'),doc.context.register(act))}catch(e){}}
+/* ---------- allocate by quantity ---------- */
+S.abSkip=new Set();
+function abPick(){const pid=$('abPaper').value,loc=$('abLoc').value,qty=numOrNull($('abQty').value),unit=$('abUnit').value;
+  const pool=[...S.rolls.values()].filter(r=>r.status==='in_stock'&&r.paperId===pid&&(!loc||r.location===loc)).sort((a,b)=>(a.receivedAt||0)-(b.receivedAt||0)||String(a.barcode||a.id).localeCompare(String(b.barcode||b.id),undefined,{numeric:true}));
+  const picked=[];let lb=0;
+  if(qty&&qty>0)for(const r of pool){if(S.abSkip.has(r.id))continue;if(unit==='rolls'?picked.length>=qty:lb>=qty)break;picked.push(r);lb+=lbOf(r)||0}
+  return {pool,picked,lb,qty,unit}}
+function renderAlloc(){if(S.tab!=='alloc')return;paperOptions($('abPaper'),false);
+  const pid=$('abPaper').value,inStock=[...S.rolls.values()].filter(r=>r.status==='in_stock'&&r.paperId===pid);
+  const locs=[...new Set(inStock.map(r=>r.location).filter(Boolean))].sort(),cur=$('abLoc').value;
+  $('abLoc').innerHTML='<option value="">Any location</option>'+locs.map(l=>`<option>${esc(l)}</option>`).join('');if(locs.includes(cur))$('abLoc').value=cur;
+  $('abAvail').textContent=pid?`In stock: ${inStock.length} roll${inStock.length===1?'':'s'} · ${kg(sumLb(inStock))} lb`:'';
+  const {pool,picked,lb,qty,unit}=abPick();
+  $('abRows').innerHTML=picked.length||S.abSkip.size?pool.filter(r=>picked.includes(r)||S.abSkip.has(r.id)).map(r=>{const on=picked.includes(r);return `<tr${on?'':' style="opacity:.5"'}><td><input type="checkbox" data-abroll="${esc(r.id)}" ${on?'checked':''} style="width:auto" aria-label="Use roll ${esc(r.barcode||r.id)}"></td><td class="mono">${esc(r.barcode||r.id)}</td><td>${esc(r.location||'—')}</td><td class="r num">${kg(lbOf(r))}</td><td>${fmtDay(r.receivedAt)}</td></tr>`}).join('')
+    :`<tr><td colspan="5" class="muted">${pid?'Enter the poundage the job needs.':'Choose a paper type.'}</td></tr>`;
+  const short=qty&&(unit==='rolls'?picked.length<qty:lb<qty);
+  $('abTotal').textContent=picked.length?`${picked.length} roll${picked.length===1?'':'s'} · ${kg(lb)} lb`:'';
+  const job=$('abJob').value.trim();
+  $('abGo').disabled=!picked.length||!job;$('abGo').textContent=picked.length?`Allocate ${picked.length} roll${picked.length===1?'':'s'}${job?' to '+job:''}`:'Allocate';
+  if(short&&picked.length)$('abMsg').textContent=`Only ${picked.length} roll${picked.length===1?'':'s'} (${kg(lb)} lb) available${$('abLoc').value?' at this location':''}. You can still allocate these.`;
+  else if(!job&&picked.length)$('abMsg').textContent='Enter the job number to allocate.';
+  else if(!$('abDocket').hidden){}else $('abMsg').textContent=''}
+$('abUnit').addEventListener('input',()=>{const lb=$('abUnit').value==='lb';$('abQtyLbl').textContent=lb?'Poundage needed (lb)':'Rolls needed';$('abQty').placeholder=lb?'e.g. 12000':'e.g. 6'});
+['abPaper','abLoc','abQty','abUnit'].forEach(id=>$(id).addEventListener('input',()=>{S.abSkip.clear();$('abDocket').hidden=true;renderAlloc()}));
+$('abJob').addEventListener('input',()=>{$('abDocket').hidden=true;renderAlloc()});
+$('abRows').addEventListener('change',e=>{const id=e.target.dataset.abroll;if(!id)return;e.target.checked?S.abSkip.delete(id):S.abSkip.add(id);renderAlloc()});
+$('abForm').addEventListener('submit',async e=>{e.preventDefault();if(cantWrite())return;const job=$('abJob').value.trim();const {picked}=abPick();if(!job||!picked.length)return;
+  $('abGo').disabled=true;let n=0,lb=0;
+  try{for(const r of picked){const cur=S.rolls.get(r.id);if(!cur||cur.status!=='in_stock')continue;await doAllocate(cur,job);n++;lb+=lbOf(cur)||0}
+    toast(`${n} roll${n===1?'':'s'} allocated to ${job}`);
+    $('abQty').value='';S.abSkip.clear();$('abMsg').textContent=`Done: ${n} roll${n===1?'':'s'} (${kg(lb)} lb) allocated to ${job}.`;$('abDocket').hidden=false;$('abDocket').dataset.job=job}
+  catch(err){toast(errMsg(err))}finally{renderAlloc()}});
+$('abDocket').onclick=()=>{const job=$('abDocket').dataset.job;setTab('dockets');renderDocketJobs();$('dkJob').value=job;$('dkFrom').value=$('dkTo').value=isoDay(Date.now());renderDocketPreview()};
+
 /* ---------- roll labels ---------- */
 // Minimal QR Code encoder: byte mode, error correction level M, versions 1-15.
 const makeQR=(function(){
@@ -1190,6 +1253,7 @@ $('dkHistory').addEventListener('click',e=>{const b=e.target.closest('[data-repr
 (function(){$('dkTo').value=isoDay(Date.now());$('dkFrom').value=isoDay(Date.now())})();
 
 function render(){
+  renderAlloc();
   if(S.imp&&S.imp.length&&!S.impLock)impPlan();
   renderLast();
   renderLabels();
@@ -1243,10 +1307,11 @@ $('exportUsage').onclick=()=>exportCsv(`roll-usage-${new Date().toISOString().sl
 
 /* ---------- UI wiring ---------- */
 function setTab(t){S.tab=t;document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===t));
-  ['scan','roll','totals','stock','usage','labels','dockets','papers'].forEach(k=>{const el=$('tab-'+k);el.hidden=k!==t});
+  ['scan','roll','totals','stock','usage','alloc','labels','dockets','papers'].forEach(k=>{const el=$('tab-'+k);el.hidden=k!==t});
   try{localStorage.setItem('rollTab',t)}catch(e){}
   $('hhBack').hidden=!(document.body.classList.contains('hh')&&t!=='scan');
   if(t==='dockets')renderDocketPreview();
+  if(t==='alloc')renderAlloc();
   if(t==='labels'){buildLabelRows();renderLabels()}
   if(t==='scan')$('scan').focus()}
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button[data-tab]');if(b)setTab(b.dataset.tab)};
