@@ -195,6 +195,9 @@ textarea{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radiu
 .docket .notes{border:1px solid var(--paper-line);min-height:56px;padding:6px 8px;white-space:pre-wrap}
 .docket .sign{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:10px}
 .docket .sign div{border-top:1px solid var(--paper-ink);padding-top:4px;font-size:10px;color:#444}
+.docket .alloc{display:flex;flex-wrap:wrap;gap:6px 28px;align-items:baseline;border:2px solid var(--paper-ink);padding:8px 12px}
+.docket .alloc span{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#555;margin-right:6px}
+.docket .alloc b{font-size:16px}
 .docket .dempty{padding:24px;text-align:center;color:#666;border:1px dashed var(--paper-line)}
 
 /* stock cards */
@@ -646,7 +649,7 @@ const rollRef=id=>S.db.collection('rolls').doc(id);
 function doReceive(code,o){const id=docId(code),now=Date.now();
   const body={barcode:code,...(o.labelPrinted!=null?{labelPrinted:o.labelPrinted}:{}),po:o.po||'',weightLbs:o.lbs??null,supplier:o.supplier||'',paperId:o.paperId,weightKg:o.kg??null,lengthIn:o.len??null,location:o.loc||'',status:'in_stock',job:'',receivedAt:now,allocatedAt:null,usedAt:null,updatedAt:now,history:hist(null,'received',o.loc?('Location '+o.loc):'')};
   return queue(id,()=>rollRef(id).set(body))}
-function doAllocate(r,job){return queue(r.id,()=>rollRef(r.id).update({status:'allocated',job,allocatedAt:Date.now(),updatedAt:Date.now(),history:hist(r,'allocated',job)}))}
+function doAllocate(r,job,extra){const h=hist(r,'allocated',job);if(extra)Object.assign(h[h.length-1],extra);return queue(r.id,()=>rollRef(r.id).update({status:'allocated',job,allocatedAt:Date.now(),updatedAt:Date.now(),history:h}))}
 function doUse(r){return queue(r.id,()=>rollRef(r.id).update({status:'used',usedAt:Date.now(),updatedAt:Date.now(),history:hist(r,'used',r.job||'')}))}
 function doReturn(r,remaining,note,usedLb){const h=hist(r,'returned',note||(remaining!=null?('Remaining '+remaining+' lb'):''));if(usedLb!=null)h[h.length-1].usedLb=usedLb;const u={status:'in_stock',job:'',allocatedAt:null,usedAt:null,updatedAt:Date.now(),history:h};if(remaining!=null){u.weightLbs=remaining;u.weightKg=Math.round(remaining*0.45359237*10)/10}return queue(r.id,()=>rollRef(r.id).update(u))}
 function doDelete(r){return queue(r.id,()=>rollRef(r.id).delete())}
@@ -987,10 +990,10 @@ $('abUnit').addEventListener('input',()=>{const lb=$('abUnit').value==='lb';$('a
 $('abJob').addEventListener('input',()=>{$('abDocket').hidden=true;renderAlloc()});
 $('abRows').addEventListener('change',e=>{const id=e.target.dataset.abroll;if(!id)return;e.target.checked?S.abSkip.delete(id):S.abSkip.add(id);renderAlloc()});
 $('abForm').addEventListener('submit',async e=>{e.preventDefault();if(cantWrite())return;const job=$('abJob').value.trim();const {picked}=abPick();if(!job||!picked.length)return;
-  $('abGo').disabled=true;let n=0,lb=0;
-  try{for(const r of picked){const cur=S.rolls.get(r.id);if(!cur||cur.status!=='in_stock')continue;await doAllocate(cur,job);n++;lb+=lbOf(cur)||0}
+  $('abGo').disabled=true;let n=0,lb=0;const qty=+$('abQty').value,extra=$('abUnit').value==='lb'&&qty>0?{reqLb:Math.round(qty),batch:Date.now().toString(36)}:null;
+  try{for(const r of picked){const cur=S.rolls.get(r.id);if(!cur||cur.status!=='in_stock')continue;await doAllocate(cur,job,extra);n++;lb+=lbOf(cur)||0}
     toast(`${n} roll${n===1?'':'s'} allocated to ${job}`);
-    $('abQty').value='';S.abSkip.clear();$('abMsg').textContent=`Done: ${n} roll${n===1?'':'s'} (${kg(lb)} lb) allocated to ${job}.`;$('abDocket').hidden=false;$('abDocket').dataset.job=job}
+    $('abQty').value='';S.abSkip.clear();$('abMsg').textContent=`Done: ${n} roll${n===1?'':'s'} (${kg(lb)} lb) allocated to ${job}${extra?` for ${kg(extra.reqLb)} lb needed`:''}.`;$('abDocket').hidden=false;$('abDocket').dataset.job=job}
   catch(err){toast(errMsg(err))}finally{renderAlloc()}});
 $('abDocket').onclick=()=>{const job=$('abDocket').dataset.job;setTab('dockets');renderDocketJobs();$('dkJob').value=job;$('dkFrom').value=$('dkTo').value='';renderDocketPreview()};
 
@@ -1242,11 +1245,12 @@ function docketModel(){
     if(f.mode==='used'&&!us&&!rt)return; if(f.mode==='issued'&&!al)return; if(!al&&!us)return;
     const job=(us&&us.note)||(al&&al.note)||r.job||'';if(f.job&&!jobMatch(job,f.job)&&!jobMatch(r.job,f.job))return;
     const p=paperOf(r)||{};
-    rows.push({barcode:r.barcode||r.id,paper:p.name||'Unknown paper',gsm:p.gsm||null,wt:wtShort(p),width:p.width||null,job,issuedAt:al?.at||r.allocatedAt||null,usedAt:us?.at||rt?.at||null,kg:rt?rt.usedLb:(lbOf(r)||0),m:rt?0:(lenIn(r)||0),
+    rows.push({req:al&&al.reqLb!=null?{batch:al.batch||(r.id+al.at),lb:+al.reqLb}:null,barcode:r.barcode||r.id,paper:p.name||'Unknown paper',gsm:p.gsm||null,wt:wtShort(p),width:p.width||null,job,issuedAt:al?.at||r.allocatedAt||null,usedAt:us?.at||rt?.at||null,kg:rt?rt.usedLb:(lbOf(r)||0),m:rt?0:(lenIn(r)||0),
       status:us?'Used':rt?'Part used':r.status==='allocated'?'Issued':r.status==='in_stock'?'Returned':STATUS[r.status]||''})});
   rows.sort((x,y)=>(x.issuedAt||x.usedAt||0)-(y.issuedAt||y.usedAt||0));
-  const by=new Map();rows.forEach(r=>{const k=r.paper+'|'+dwt(r)+'|'+(r.width||'');const t=by.get(k)||{paper:r.paper,gsm:r.gsm,wt:dwt(r),width:r.width,n:0,kg:0,used:0};t.n++;t.kg+=r.kg;if(r.status==='Used'||r.status==='Part used')t.used++;by.set(k,t)});
-  return {...f,unit:'lb',rows,summary:[...by.values()].sort((x,y)=>y.kg-x.kg),totalKg:rows.reduce((s,r)=>s+r.kg,0),totalUsed:rows.filter(r=>r.status==='Used'||r.status==='Part used').length}}
+  const by=new Map(),seen=new Set();let reqLb=null;rows.forEach(r=>{const k=r.paper+'|'+dwt(r)+'|'+(r.width||'');const t=by.get(k)||{paper:r.paper,gsm:r.gsm,wt:dwt(r),width:r.width,n:0,kg:0,used:0,req:null};t.n++;t.kg+=r.kg;if(r.status==='Used'||r.status==='Part used')t.used++;
+    if(r.req&&!seen.has(r.req.batch)){seen.add(r.req.batch);t.req=(t.req||0)+r.req.lb;reqLb=(reqLb||0)+r.req.lb}by.set(k,t)});
+  return {...f,unit:'lb',reqLb,rows,summary:[...by.values()].sort((x,y)=>y.kg-x.kg),totalKg:rows.reduce((s,r)=>s+r.kg,0),totalUsed:rows.filter(r=>r.status==='Used'||r.status==='Part used').length}}
 const dkJobs=m=>{if(m.job)return m.job;const j=[...new Set((m.rows||[]).map(r=>r.job).filter(Boolean))];return j.length?(j.length<=4?j.join(', '):j.slice(0,3).join(', ')+' +'+(j.length-3)+' more'):'—'};
 const dkPeriod=m=>m.from||m.to?`${m.from?fmtDay(dayStart(m.from)):'Start'} – ${m.to?fmtDay(dayStart(m.to)):'Today'}`:'All dates';
 const fmtShort=ms=>ms?new Date(ms).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
@@ -1256,8 +1260,9 @@ function renderDocketPreview(){
   const meta=[['Docket no.','Assigned when printed'],['Job no. / press',dkJobs(m)],['Period',dkPeriod(m)],['Plant / line',m.plant||'—'],['Shift',m.shift||'—'],['Operator',m.operator||'—']];
   el.innerHTML=`<div class="dhead"><div><img src="${MPI_LOGO}" alt="MPI Print &amp; Packaging" style="height:34px;width:auto;display:block;margin-bottom:8px"><h2>Paper usage docket</h2><div>Roll issue and usage record for plant</div></div><div class="bc">${barcodeSVG('PD-000000-0000')}<span>PD-######-####</span></div></div>
    <div class="meta">${meta.map(([k,v])=>`<div><span>${k}</span><b>${esc(v)}</b></div>`).join('')}</div>
+   ${m.reqLb!=null?`<div class="alloc"><div><span>Allocated for job</span><b class="num">${kg(m.reqLb)} lb</b></div><div><span>Rolls issued</span><b class="num">${m.rows.length} roll${m.rows.length>1?'s':''} · ${kg(m.totalKg)} lb</b></div></div>`:''}
    ${m.rows.length?`<div style="overflow-x:auto"><table><thead><tr><th>#</th><th>Roll barcode</th><th>Paper type</th><th>Job</th><th>Issued</th><th>Used</th><th>Status</th><th class="r">${m.unit||'kg'}</th></tr></thead><tbody>${m.rows.map((r,i)=>`<tr><td>${i+1}</td><td class="mono" style="font-size:11px">${esc(r.barcode)}</td><td>${esc(r.paper)}${dwt(r)?' · '+esc(dwt(r)):''}</td><td>${esc(r.job||'—')}</td><td>${fmtShort(r.issuedAt)||'—'}</td><td>${fmtShort(r.usedAt)||'—'}</td><td>${r.status}</td><td class="r num">${kg(r.kg)}</td></tr>`).join('')}</tbody><tfoot><tr><td colspan="7">Total · ${m.rows.length} roll${m.rows.length>1?'s':''} (${m.totalUsed} used)</td><td class="r num">${kg(m.totalKg)}</td></tr></tfoot></table></div>
-   <div class="sum"><div><table><thead><tr><th>Paper type</th><th class="r">Rolls</th><th class="r">Used</th><th class="r">${m.unit||'kg'}</th></tr></thead><tbody>${m.summary.map(t=>`<tr><td>${esc(t.paper)}${dwt(t)?' · '+esc(dwt(t)):''}${t.width?' · '+t.width+'"':''}</td><td class="r num">${t.n}</td><td class="r num">${t.used}</td><td class="r num">${kg(t.kg)}</td></tr>`).join('')}</tbody></table></div>
+   <div class="sum"${m.reqLb!=null?' style="grid-template-columns:minmax(0,1fr)"':''}><div><table><thead><tr><th>Paper type</th><th class="r">Rolls</th><th class="r">Used</th>${m.reqLb!=null?'<th class="r">Allocated lb</th>':''}<th class="r">${m.reqLb!=null?'Issued lb':(m.unit||'kg')}</th></tr></thead><tbody>${m.summary.map(t=>`<tr><td>${esc(t.paper)}${dwt(t)?' · '+esc(dwt(t)):''}${t.width?' · '+t.width+'"':''}</td><td class="r num">${t.n}</td><td class="r num">${t.used}</td>${m.reqLb!=null?`<td class="r num">${t.req!=null?kg(t.req):'—'}</td>`:''}<td class="r num">${kg(t.kg)}</td></tr>`).join('')}</tbody></table></div>
    <div><span class="label" style="color:#555">Notes</span><div class="notes">${esc(m.notes)}</div></div></div>`
    :`<div class="dempty">No rolls were issued or used${m.job?' on '+esc(m.job):''} in this period. Change the job or dates.</div>`}
    <div class="sign"><div>Issued by (stores) · Date</div><div>Received by (plant) · Date</div><div>Supervisor sign-off</div></div>`;
@@ -1284,7 +1289,10 @@ async function buildDocketPdf(m){
       y-=44;hline(y,1.5,ink);y-=18;
       const meta=[['DOCKET NO.',m.no],['JOB NO. / PRESS',dkJobs(m)],['PERIOD',dkPeriod(m)],['PLANT / LINE',m.plant||'—'],['SHIFT',m.shift||'—'],['OPERATOR',m.operator||'—'],['PRINTED',new Date(m.createdAt).toLocaleString()],['ROLLS',String(m.rows.length)+' ('+m.totalUsed+' used)'],['TOTAL '+U.toUpperCase(),kg(m.totalKg)]];
       const cw=(R-L)/3;meta.forEach(([k,v],i)=>{const x=L+(i%3)*cw,yy=y-Math.floor(i/3)*26;txt(k,x,yy,{size:7,color:grey});txt(v,x,yy-11,{font:B,size:10,max:cw-10})});
-      y-=3*26+6;}
+      y-=3*26+6;
+      if(m.reqLb!=null){page.drawRectangle({x:L,y:y-30,width:R-L,height:34,borderColor:ink,borderWidth:1.5});
+        txt('ALLOCATED FOR JOB',L+10,y-8,{size:7,color:grey});txt(kg(m.reqLb)+' lb',L+10,y-23,{font:B,size:14});
+        txt('ROLLS ISSUED',L+200,y-8,{size:7,color:grey});txt(m.rows.length+' roll'+(m.rows.length>1?'s':'')+' · '+kg(m.totalKg)+' lb',L+200,y-23,{font:B,size:14});y-=50}}
     else{txt('PAPER USAGE DOCKET  '+m.no+'  (continued)',L,y,{font:B,size:10});y-=22}
     if(head)tableHead()};
   newPage(true);
@@ -1294,9 +1302,9 @@ async function buildDocketPdf(m){
   y-=2;hline(y+9,1.2,ink);txt('Total · '+m.rows.length+' rolls ('+m.totalUsed+' used)',L+3,y-2,{font:B,size:9});txt(kg(m.totalKg),R,y-2,{font:B,size:9,align:'right'});y-=26;
   const need=40+m.summary.length*14+120;if(y<need)newPage(false,false);
   txt('SUMMARY BY PAPER TYPE',L,y,{font:B,size:8,color:grey});y-=14;
-  const sx=[L,L+300,L+360,R];page.drawRectangle({x:L,y:y-4,width:R-L,height:15,color:fill});
-  ['PAPER TYPE','ROLLS','USED',U.toUpperCase()].forEach((h,i)=>txt(h,i?sx[i]+(i===3?0:40):L+3,y,{font:B,size:7.5,align:i?'right':'left'}));y-=6;hline(y,0.8,ink);y-=12;
-  m.summary.forEach(t=>{if(y<70)newPage(false,false);txt(t.paper+(dwt(t)?' · '+dwt(t):'')+(t.width?' · '+t.width+'"':''),L+3,y,{size:9,max:290});txt(String(t.n),sx[1]+40,y,{size:9,align:'right'});txt(String(t.used),sx[2]+40,y,{size:9,align:'right'});txt(kg(t.kg),R,y,{size:9,align:'right'});y-=5;hline(y);y-=11});
+  const hasReq=m.reqLb!=null,sx=[L,L+250,L+300,L+370,R];page.drawRectangle({x:L,y:y-4,width:R-L,height:15,color:fill});
+  txt('PAPER TYPE',L+3,y,{font:B,size:7.5});txt('ROLLS',sx[1]+30,y,{font:B,size:7.5,align:'right'});txt('USED',sx[2]+30,y,{font:B,size:7.5,align:'right'});if(hasReq)txt('ALLOCATED LB',sx[3]+50,y,{font:B,size:7.5,align:'right'});txt(hasReq?'ISSUED LB':U.toUpperCase(),R,y,{font:B,size:7.5,align:'right'});y-=6;hline(y,0.8,ink);y-=12;
+  m.summary.forEach(t=>{if(y<70)newPage(false,false);txt(t.paper+(dwt(t)?' · '+dwt(t):'')+(t.width?' · '+t.width+'"':''),L+3,y,{size:9,max:240});txt(String(t.n),sx[1]+30,y,{size:9,align:'right'});txt(String(t.used),sx[2]+30,y,{size:9,align:'right'});if(hasReq)txt(t.req!=null?kg(t.req):'—',sx[3]+50,y,{size:9,align:'right'});txt(kg(t.kg),R,y,{size:9,align:'right'});y-=5;hline(y);y-=11});
   y-=14;if(y<130){newPage(false,false)}
   txt('NOTES',L,y,{font:B,size:8,color:grey});y-=6;page.drawRectangle({x:L,y:y-48,width:R-L,height:48,borderColor:line,borderWidth:0.8});
   pdfSafe(m.notes).split(/\n/).slice(0,3).forEach((ln,i)=>txt(ln,L+6,y-13-i*12,{size:9,max:R-L-12}));y-=90;
@@ -1440,6 +1448,7 @@ function setWritable(w){S.canWrite=w;
   db.collection('rolls').onSnapshot(s=>{S.rolls=new Map(s.docs.map(d=>[d.id,{id:d.id,...d.data()}]));render()},onErr);
 })();
 </script>
+
 
 <script>
 (function(){const $=id=>document.getElementById(id);const host=$('tab-papers');if(!host)return;
